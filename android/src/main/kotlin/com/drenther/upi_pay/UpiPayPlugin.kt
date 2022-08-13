@@ -16,13 +16,25 @@ import io.flutter.plugin.common.PluginRegistry.ActivityResultListener
 import io.flutter.plugin.common.PluginRegistry.Registrar
 import java.io.ByteArrayOutputStream
 
-class UpiPayPlugin internal constructor(registrar: Registrar, channel: MethodChannel) : MethodCallHandler, ActivityResultListener {
-  private val activity = registrar.activity()
+import android.app.Activity
+import io.flutter.embedding.engine.loader.FlutterApplicationInfo
+import io.flutter.embedding.engine.plugins.FlutterPlugin
+import io.flutter.embedding.engine.plugins.activity.ActivityAware
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
+import androidx.annotation.NonNull
+
+class UpiPayPlugin : FlutterPlugin,ActivityResultListener, MethodCallHandler,ActivityAware {
 
   private var result: Result? = null
   private var requestCodeNumber = 201119
-
+  private lateinit var channel: MethodChannel
+  private var activity: Activity? = null
   var hasResponded = false
+
+  override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
+    channel = MethodChannel(flutterPluginBinding.binaryMessenger, "upi_pay")
+    channel.setMethodCallHandler(this)
+  }
 
   override fun onMethodCall(call: MethodCall, result: Result) {
     hasResponded = false
@@ -34,6 +46,10 @@ class UpiPayPlugin internal constructor(registrar: Registrar, channel: MethodCha
       "getInstalledUpiApps" -> this.getInstalledUpiApps()
       else -> result.notImplemented()
     }
+  }
+
+  override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+    channel.setMethodCallHandler(null)
   }
 
   private fun initiateTransaction(call: MethodCall) {
@@ -75,12 +91,12 @@ class UpiPayPlugin internal constructor(registrar: Registrar, channel: MethodCha
       val intent = Intent(Intent.ACTION_VIEW, uri)
       intent.setPackage(app)
 
-      /*if (intent.resolveActivity(activity?.packageManager) == null) {
+      if (intent.resolveActivity(activity!!.packageManager) == null) {
         this.success("activity_unavailable")
         return
-      }*/
+      }
 
-      activity?.startActivityForResult(intent, requestCodeNumber)
+      activity!!.startActivityForResult(intent, requestCodeNumber)
     } catch (ex: Exception) {
       Log.e("upi_pay", ex.toString())
       this.success("failed_to_open_app")
@@ -94,15 +110,15 @@ class UpiPayPlugin internal constructor(registrar: Registrar, channel: MethodCha
     val uri = uriBuilder.build()
     val intent = Intent(Intent.ACTION_VIEW, uri)
 
-    val packageManager = activity?.packageManager
+    val packageManager = activity!!.packageManager
 
     try {
-      val activities = packageManager?.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+      val activities = packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
 
       // Convert the activities into a response that can be transferred over the channel.
-      val activityResponse = activities?.map {
+      val activityResponse = activities.map {
         val packageName = it.activityInfo.packageName
-        val drawable = packageManager?.getApplicationIcon(packageName)
+        val drawable = packageManager.getApplicationIcon(packageName)
 
         val bitmap = getBitmapFromDrawable(drawable)
         val icon = if (bitmap != null) {
@@ -163,13 +179,17 @@ class UpiPayPlugin internal constructor(registrar: Registrar, channel: MethodCha
     return true
   }
 
-  companion object {
-    @JvmStatic
-    fun registerWith(registrar: Registrar) {
-      val channel = MethodChannel(registrar.messenger(), "upi_pay")
-      val plugin = UpiPayPlugin(registrar, channel)
-      registrar.addActivityResultListener(plugin)
-      channel.setMethodCallHandler(plugin)
-    }
+  override fun onDetachedFromActivity() {
+  }
+
+  override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
+  }
+
+  override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+    activity = binding.activity
+    binding.addActivityResultListener(this)
+  }
+
+  override fun onDetachedFromActivityForConfigChanges() {
   }
 }
